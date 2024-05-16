@@ -11,7 +11,7 @@ const app = express();
 const httpServer = http.createServer(app);  // Asegúrate de que esta línea esté correctamente definida antes de usar httpServer
 const io = require('socket.io')(httpServer, {
   cors: {
-    origin: "https://frontened-s2fb.onrender.com",
+    origin: "https://frontened-ceov.onrender.com",
     methods: ["GET", "POST"],
     credentials: true
   }
