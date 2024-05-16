@@ -51,11 +51,12 @@ exports.login = async (req, res) => {
     if (user.rows.length > 0) {
       const validPassword = await bcrypt.compare(password, user.rows[0].password);
       if (validPassword) {
-        // Inicio de sesión exitoso, establecer sesión o token aquí
-        //res.status(200).json({ message: "Inicio de sesión exitoso" });
-        res.status(200).json({ message: "Inicio de sesión exitoso", nombre: user.rows[0].nombre });
-
-      } else {
+        res.status(200).json({
+          message: "Inicio de sesión exitoso",
+          nombre: user.rows[0].nombre,
+          tipo: user.rows[0].tipo // Enviar el tipo al frontend
+        });
+      }else {
         res.status(401).send('password incorrecta');
       }
     } else {
@@ -67,3 +68,4 @@ exports.login = async (req, res) => {
 
   }
 };
+
