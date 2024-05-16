@@ -81,7 +81,7 @@ exports.requestTaxi = async (req, res, io) => {
       io.to(taxi.socketId).emit('taxiRequest', { clientId, name, latitude, longitude, address, viajeId });
     });
 
-    res.status(200).send('Solicitud de taxi enviada a los conductores cercanos.');
+    res.status(200).send('Solicitud de taxi enviada a todos los conductores cercanos.');
   } catch (error) {
     console.error('Error al insertar viaje en la base de datos:', error);
     res.status(500).send('Error al procesar la solicitud de taxi.');
