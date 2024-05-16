@@ -1,8 +1,9 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const pool = require('./config/dbConfig');
-const http = require('http');  // Uso de HTTP en lugar de HTTPS
+const http = require('http'); 
 const socketIo = require('socket.io');
 
 const app = express();
@@ -50,6 +51,14 @@ app.use('/api/geolocation', geolocationRoutes);
 
 app.get('/', (req, res) => {
   res.send('¡Hola Mundo!');
+});
+
+// Middleware para servir archivos estáticos
+app.use(express.static(path.join(__dirname, 'build')));
+
+// Catch-all para enviar index.html para cualquier ruta que no coincida con las rutas API
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
 app.get('/db', async (req, res) => {
