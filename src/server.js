@@ -12,7 +12,7 @@ const app = express();
 const httpServer = http.createServer(app);  // Asegúrate de que esta línea esté correctamente definida antes de usar httpServer
 const io = require('socket.io')(httpServer, {
   cors: {
-    origin: "https://frontened-ceov.onrender.com",
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -72,7 +72,7 @@ app.get('/db', async (req, res) => {
 });
 
 // Escucha en el puerto asignado por Render o en un puerto predeterminado para desarrollo local
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3002;
 httpServer.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto msbh ${PORT}`);
 });
