@@ -44,8 +44,8 @@ exports.getAllUserLocations = async (req, res) => {
 };
 
 exports.requestTaxi = async (req, res, io) => {
-  const { clientId, name, latitude, longitude, address, endLatitude, endLongitude, endAddress } = req.body;
-  console.log(`Recibida solicitud de taxi de ${name} en ${address}`);
+  let { clientId, name, latitude, longitude, address, endLatitude, endLongitude, endAddress } = req.body;
+  console.log(`Recibida solicitud de taxi de ${name} en ${address} con latitud ${latitude} y longitud ${longitude}`);
 
   // Asegúrate de que el contacto exista antes de crear el viaje
   const contactExists = await pool.query(
@@ -61,8 +61,28 @@ exports.requestTaxi = async (req, res, io) => {
     );
   }
 
-  // Inserta el viaje en la base de datos
   try {
+    // Verifica y obtiene las coordenadas de la dirección de inicio si no se proporcionan
+    if (!latitude || !longitude) {
+      const startCoords = await getGeocoding(address);
+      if (!startCoords) {
+        return res.status(400).send('No se pudo obtener las coordenadas de la dirección de inicio.');
+      }
+      latitude = startCoords.latitude;
+      longitude = startCoords.longitude;
+    }
+
+    // Verifica y obtiene las coordenadas de la dirección de fin si no se proporcionan
+    if (!endLatitude || !endLongitude) {
+      const endCoords = await getGeocoding(endAddress);
+      if (!endCoords) {
+        return res.status(400).send('No se pudo obtener las coordenadas de la dirección de fin.');
+      }
+      endLatitude = endCoords.latitude;
+      endLongitude = endCoords.longitude;
+    }
+
+    // Inserta el viaje en la base de datos
     const insertQuery = `
       INSERT INTO viajes (telefono_cliente, estado, direccion, latitud, longitud, direccion_fin, latitud_fin, longitud_fin, fecha_hora_inicio)
       VALUES ($1, 'pendiente', $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP) RETURNING id_viaje;
@@ -70,7 +90,7 @@ exports.requestTaxi = async (req, res, io) => {
     const values = [clientId, address, latitude, longitude, endAddress, endLatitude, endLongitude];
     const insertResult = await pool.query(insertQuery, values);
     const viajeId = insertResult.rows[0].id_viaje;
-  
+
     // Encuentra los taxistas cercanos
     const nearbyTaxis = await findNearbyTaxis(latitude, longitude);
 
@@ -81,7 +101,7 @@ exports.requestTaxi = async (req, res, io) => {
       io.to(taxi.socketId).emit('taxiRequest', { clientId, name, latitude, longitude, address, viajeId });
     });
 
-    res.status(200).send('Solicitud de taxi enviada a todos los conductores cercanos.');
+    res.status(200).send('Solicitud de taxi enviada a los conductores cercanos.');
   } catch (error) {
     console.error('Error al insertar viaje en la base de datos:', error);
     res.status(500).send('Error al procesar la solicitud de taxi.');
@@ -137,7 +157,7 @@ const findNearbyTaxis = async (latitude, longitude) => {
   const clientIndex = h3.latLngToCell(latitude, longitude, 9);
   const nearbyIndices = h3.gridDisk(clientIndex, 3);  // Cambiado de kRing a gridDisk
 
-  const allTaxis = await pool.query('SELECT id_usuario, socket_id, latitud, longitud FROM usuarios WHERE tipo = $1', ['taxi']);
+  const allTaxis = await pool.query('SELECT id_usuario, socket_id, latitud, longitud FROM usuarios WHERE tipo = $1', ['tipo2']);
 
   const nearbyTaxis = allTaxis.rows.filter(taxi => {
     const taxiIndex = h3.latLngToCell(taxi.latitud, taxi.longitud, 9);
@@ -147,3 +167,19 @@ const findNearbyTaxis = async (latitude, longitude) => {
   return nearbyTaxis.map(taxi => ({ socketId: taxi.socket_id, ...taxi }));
 };
 
+
+async function getGeocoding(address) {
+  try {
+    const response = await axios.get(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${process.env.GOOGLE_MAPS_API_KEY}`);
+    if (response.data.status !== 'OK') {
+      console.error('Geocoding error:', response.data.status);
+      return null;
+    }
+
+    const { lat, lng } = response.data.results[0].geometry.location;
+    return { latitude: lat, longitude: lng };
+  } catch (error) {
+    console.error('Error during geocoding:', error);
+    return null;
+  }
+}
