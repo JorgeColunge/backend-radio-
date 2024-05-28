@@ -92,7 +92,7 @@ exports.requestTaxi = async (req, res, io) => {
     const viajeId = insertResult.rows[0].id_viaje;
 
     io.emit('taxiRequestPending', { latitude, longitude, range: 500, viajeId });
-    await handleTaxiRequestCycle(latitude, longitude, 500, viajeId, io, 'taxi');
+    await handleTaxiRequestCycle(latitude, longitude, 500, viajeId, io, 'taxi', address, endAddress, name);
 
     res.status(200).send('Solicitud de taxi enviada a los conductores cercanos.');
   } catch (error) {
@@ -149,7 +149,7 @@ exports.requestDelivery = async (req, res, io) => {
     const viajeId = insertResult.rows[0].id_viaje;
 
     io.emit('deliveryRequestPending', { latitude, longitude, range: 500, viajeId });
-    await handleTaxiRequestCycle(latitude, longitude, 500, viajeId, io, 'delivery');
+    await handleTaxiRequestCycle(latitude, longitude, 500, viajeId, io, 'delivery', pickupAddress, deliveryAddress, name, description);
 
     res.status(200).send('Solicitud de domicilio enviada a los conductores cercanos.');
   } catch (error) {
@@ -158,7 +158,7 @@ exports.requestDelivery = async (req, res, io) => {
   }
 };
 
-const handleTaxiRequestCycle = async (latitude, longitude, range, viajeId, io, tipo) => {
+const handleTaxiRequestCycle = async (latitude, longitude, range, viajeId, io, tipo, address, endAddress, name, descripcion) => {
   let attempt = 1;
   let maxAttempts = 3;
   let status = 'pendiente';
@@ -170,7 +170,7 @@ const handleTaxiRequestCycle = async (latitude, longitude, range, viajeId, io, t
 
     nearbyTaxis.forEach(taxi => {
       console.log(`Enviando solicitud de ${tipo} a ${taxi.id_usuario} con socket ID ${taxi.socketId}`);
-      io.to(taxi.socketId).emit(`${tipo}Request`, { latitude, longitude, viajeId });
+      io.to(taxi.socketId).emit(`${tipo}Request`, { latitude, longitude, viajeId, address, endAddress, name, descripcion });
     });
 
     io.emit(`${tipo}RequestPending`, { latitude, longitude, range, viajeId });
@@ -256,8 +256,8 @@ exports.requestReservation = async (req, res, io) => {
       const insertResult = await pool.query(insertQuery, values);
       const viajeId = insertResult.rows[0].id_viaje;
 
-      io.emit('reservationRequestPending', { latitude, longitude, range: 5000, viajeId, fecha_reserva, hora_reserva });
-      await handleReservationRequest(viajeId, io, latitude, longitude);
+      io.emit('reservationRequestPending', { latitude, longitude, range: 5000, viajeId, fecha_reserva, hora_reserva, address, endAddress, name });
+      await handleReservationRequest(viajeId, io, latitude, longitude, fecha_reserva, hora_reserva, address, endAddress, name);
 
       res.status(200).send('Solicitud de reserva enviada a los conductores cercanos.');
   } catch (error) {
@@ -266,7 +266,7 @@ exports.requestReservation = async (req, res, io) => {
   }
 };
 
-const handleReservationRequest = async (viajeId, io, latitude, longitude) => {
+const handleReservationRequest = async (viajeId, io, latitude, longitude, fecha_reserva, hora_reserva, address, endAddress, name) => {
   try {
       const result = await pool.query('SELECT fecha_reserva, hora_reserva FROM viajes WHERE id_viaje = $1', [viajeId]);
 
@@ -290,7 +290,7 @@ const handleReservationRequest = async (viajeId, io, latitude, longitude) => {
       const nearbyTaxis = await findNearbyTaxis(latitude, longitude, range);
 
       nearbyTaxis.forEach(taxi => {
-          io.to(taxi.socketId).emit('reservationRequest', { latitude, longitude, range, viajeId, fecha_reserva, hora_reserva });
+          io.to(taxi.socketId).emit('reservationRequest', { latitude, longitude, range, viajeId, fecha_reserva, hora_reserva, address, endAddress, name });
       });
 
       const interval = setInterval(async () => {
@@ -333,10 +333,14 @@ exports.acceptTaxiRequest = async (req, res, io) => {
       io.emit('taxiRequestAccepted', { id_viaje: id_viaje, latitude: updateResult.rows[0].latitud, longitude: updateResult.rows[0].longitud });
 
       const viajeInfo = await pool.query(
-        'SELECT v.direccion, v.latitud, v.longitud, v.direccion_fin, v.latitud_fin, v.longitud_fin, c.nombre, c.telefono FROM viajes v JOIN contactos c ON v.telefono_cliente = c.telefono WHERE v.id_viaje = $1',
+        `SELECT v.direccion, v.latitud, v.longitud, v.direccion_fin, v.latitud_fin, v.longitud_fin, 
+                c.nombre, c.telefono, v.descripcion, v.hora_reserva, v.fecha_reserva, v.tipo
+         FROM viajes v 
+         JOIN contactos c ON v.telefono_cliente = c.telefono 
+         WHERE v.id_viaje = $1`,
         [id_viaje]
       );
-      const { direccion, latitud, longitud, direccion_fin, latitud_fin, longitud_fin, nombre, telefono } = viajeInfo.rows[0];
+      const { direccion, latitud, longitud, direccion_fin, latitud_fin, longitud_fin, nombre, telefono, descripcion, hora_reserva, fecha_reserva, tipo } = viajeInfo.rows[0];
 
       const taxistaInfo = await pool.query(
         'SELECT socket_id FROM usuarios WHERE id_usuario = $1',
@@ -344,7 +348,7 @@ exports.acceptTaxiRequest = async (req, res, io) => {
       );
       const { socket_id } = taxistaInfo.rows[0];
 
-      io.to(socket_id).emit('assignedTaxi', { nombre, telefono, direccion, latitud, longitud, direccion_fin, latitud_fin, longitud_fin });
+      io.to(socket_id).emit('assignedTaxi', { id_viaje, nombre, telefono, direccion, latitud, longitud, direccion_fin, latitud_fin, longitud_fin, descripcion, hora_reserva, fecha_reserva, tipo });
       res.status(200).json(updateResult.rows[0]);
     }
   } catch (error) {
@@ -354,6 +358,7 @@ exports.acceptTaxiRequest = async (req, res, io) => {
     }
   }
 };
+
 
 exports.retryTaxiRequest = async (req, res, io) => {
   const { latitude, longitude, range, viajeId } = req.body;
@@ -477,3 +482,197 @@ async function getGeocoding(address) {
     return null;
   }
 }
+
+exports.updateStatus = async (req, res) => {
+  const { id_viaje, estado } = req.body;
+  console.log(`solicitud de cambio de estado para el viaje ${id_viaje}`)
+
+  try {
+    const result = await pool.query(
+      'UPDATE viajes SET estado = $1 WHERE id_viaje = $2 RETURNING *;',
+      [estado, id_viaje]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).send('Viaje no encontrado');
+    }
+
+    res.status(200).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error al actualizar el estado del viaje:', error);
+    res.status(500).send('Error al actualizar el estado del viaje.');
+  }
+};
+
+
+exports.getAcceptedRequests = async (req, res) => {
+  const { id_usuario } = req.query;
+
+  try {
+    const acceptedRequests = await pool.query(
+      `SELECT v.*, c.nombre, c.telefono 
+       FROM viajes v 
+       JOIN contactos c ON v.telefono_cliente = c.telefono 
+       WHERE v.id_taxista = $1 AND v.estado NOT IN ('rechazado', 'finalizado', 'cancelado')`,
+      [id_usuario]
+    );
+
+    res.json(acceptedRequests.rows);
+  } catch (error) {
+    console.error('Error al obtener los viajes aceptados:', error);
+    res.status(500).send('Error al obtener los viajes aceptados');
+  }
+};
+
+
+
+
+exports.getPendingReservations = async (req, res) => {
+  try {
+    const pendingReservations = await pool.query(
+      `SELECT v.id_viaje AS "viajeId", v.estado, v.latitud, v.longitud, v.latitud_fin, v.longitud_fin, 
+              v.fecha_reserva, v.hora_reserva, v.descripcion, v.tipo, 
+              c.telefono AS telefono_cliente, c.nombre AS name, 
+              v.direccion AS address, v.direccion_fin AS "endAddress"
+       FROM viajes v 
+       JOIN contactos c ON v.telefono_cliente = c.telefono 
+       WHERE v.estado = 'pendiente' AND v.tipo = 'reserva' AND v.fecha_reserva IS NOT NULL`
+    );
+
+    res.json(pendingReservations.rows);
+  } catch (error) {
+    console.error('Error al obtener las reservas pendientes:', error);
+    res.status(500).send('Error al obtener las reservas pendientes');
+  }
+};
+
+
+exports.getDriverInfoByTripId = async (req, res) => {
+  const { id_viaje } = req.params;
+
+  try {
+    // Primero, obtenemos el ID del conductor usando el ID del viaje
+    const tripResult = await pool.query('SELECT id_taxista FROM viajes WHERE id_viaje = $1', [id_viaje]);
+    if (tripResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Viaje no encontrado' });
+    }
+    const { id_taxista } = tripResult.rows[0];
+
+    // Luego, obtenemos la información del conductor usando el ID del conductor
+    const driverResult = await pool.query('SELECT nombre, telefono, placa, navegacion FROM usuarios WHERE id_usuario = $1', [id_taxista]);
+    if (driverResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Conductor no encontrado' });
+    }
+
+    res.status(200).json(driverResult.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al obtener la información del conductor' });
+  }
+};
+
+exports.getHistoryTrips = async (req, res) => {
+  const { id_usuario } = req.params;
+  console.log(`Consultando historial para usuario ${id_usuario}`);
+
+  try {
+    const query = 'SELECT * FROM viajes WHERE id_taxista = $1 ORDER BY fecha_hora_inicio DESC';
+    const values = [id_usuario];
+
+    console.log('Query:', query);
+    console.log('Values:', values);
+
+    const result = await pool.query(query, values);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener el historial de viajes:', error);
+    res.status(500).json({ error: 'Error al obtener el historial de viajes' });
+  }
+};
+
+exports.getHistoryAllTrips = async (req, res) => {
+  try {
+    const query = `
+      SELECT v.*, u.nombre AS nombre_conductor
+      FROM viajes v
+      LEFT JOIN usuarios u ON v.id_taxista = u.id_usuario
+      ORDER BY v.fecha_hora_inicio DESC
+    `;
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener el historial de todos los viajes:', error);
+    res.status(500).json({ error: 'Error al obtener el historial de todos los viajes' });
+  }
+};
+
+exports.getDrivers = async (req, res) => {
+  try {
+    const query = `
+      SELECT id_usuario, nombre
+      FROM usuarios
+      WHERE tipo = 'tipo2'
+    `;
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener la lista de conductores:', error);
+    res.status(500).json({ error: 'Error al obtener la lista de conductores' });
+  }
+};
+
+exports.getDriverInfo = async (req, res) => {
+  const { id_usuario } = req.params;
+  console.log(`obteniendo datos para ${id_usuario}`)
+  try {
+    const query = `
+      SELECT nombre, telefono, placa, navegacion
+      FROM usuarios
+      WHERE id_usuario = $1
+    `;
+    const values = [id_usuario];
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Conductor no encontrado' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error al obtener la información del conductor:', error);
+    res.status(500).json({ error: 'Error al obtener la información del conductor' });
+  }
+};
+
+
+exports.getTripInfo = async (req, res) => {
+  const { id_viaje } = req.params;
+  console.log(`obteniendo datos para ${id_viaje}`)
+  try {
+    const query = `
+      SELECT *
+      FROM viajes
+      WHERE id_viaje = $1
+    `;
+    const values = [id_viaje];
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Conductor no encontrado' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error al obtener la información del conductor:', error);
+    res.status(500).json({ error: 'Error al obtener la información del conductor' });
+  }
+};
+
+exports.panic = async (req, res, io) => {
+  const { id_usuario } = req.body;
+
+  // Emitir el evento de pánico a todos los clientes conectados
+  io.emit('panic_event', { id_usuario });
+
+  res.status(200).send({ message: 'Panic event emitted' });
+};
