@@ -647,24 +647,50 @@ exports.getDriverInfo = async (req, res) => {
 
 exports.getTripInfo = async (req, res) => {
   const { id_viaje } = req.params;
-  console.log(`obteniendo datos para ${id_viaje}`)
+  console.log(`Obteniendo datos para ${id_viaje}`);
   try {
     const query = `
-      SELECT *
-      FROM viajes
-      WHERE id_viaje = $1
+      SELECT 
+        v.id_viaje,
+        v.telefono_cliente,
+        v.id_taxista,
+        v.estado,
+        v.fecha_hora_inicio,
+        v.fecha_hora_fin,
+        v.direccion,
+        v.latitud,
+        v.longitud,
+        v.direccion_fin,
+        v.latitud_fin,
+        v.longitud_fin,
+        v.retry_count,
+        v.tipo,
+        v.descripcion,
+        v.fecha_reserva,
+        v.hora_reserva,
+        c.nombre AS nombre_cliente,
+        u.nombre AS nombre_taxista,
+        u.telefono AS telefono_taxista
+      FROM 
+        viajes v
+      LEFT JOIN 
+        contactos c ON v.telefono_cliente = c.telefono
+      LEFT JOIN 
+        usuarios u ON v.id_taxista = u.id_usuario
+      WHERE 
+        v.id_viaje = $1
     `;
     const values = [id_viaje];
     const result = await pool.query(query, values);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Conductor no encontrado' });
+      return res.status(404).json({ error: 'Viaje no encontrado' });
     }
 
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Error al obtener la información del conductor:', error);
-    res.status(500).json({ error: 'Error al obtener la información del conductor' });
+    console.error('Error al obtener la información del viaje:', error);
+    res.status(500).json({ error: 'Error al obtener la información del viaje' });
   }
 };
 

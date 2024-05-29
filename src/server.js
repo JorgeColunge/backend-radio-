@@ -22,8 +22,6 @@ const io = socketIo(httpServer, {
 io.on('connection', (socket) => {
   console.log(`Nuevo cliente conectado: ${socket.id}`);
 
-  
-
   socket.on('disconnect', () => {
       console.log(`Cliente desconectado: ${socket.id}`);
   });
@@ -68,12 +66,12 @@ const authRoutes = require('./routes/authRoutes')(io); // Pass `io` to `authRout
 app.use('/api/auth', authRoutes);
 app.use('/api/geolocation', geolocationRoutes);
 
+// Middleware para servir archivos estáticos, incluyendo los archivos de audio
+app.use('/media/audios', express.static(path.join(__dirname, '..', 'public', 'media', 'audios')));
+
 app.get('/', (req, res) => {
   res.send('¡Hola Mundo!');
 });
-
-// Middleware para servir archivos estáticos
-app.use(express.static(path.join(__dirname, 'build')));
 
 // Catch-all para enviar index.html para cualquier ruta que no coincida con las rutas API
 app.get('*', (req, res) => {

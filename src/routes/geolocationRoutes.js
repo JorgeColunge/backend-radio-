@@ -1,6 +1,36 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const geolocationController = require('../controllers/geolocationController');
+
+// Configuración de almacenamiento de Multer para audios
+const audioStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const audioDir = path.join(__dirname, '..', '..', 'public', 'media', 'audios');
+    if (!fs.existsSync(audioDir)) {
+      fs.mkdirSync(audioDir, { recursive: true });
+    }
+    cb(null, audioDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const uploadAudio = multer({
+  storage: audioStorage,
+  fileFilter: function (req, file, cb) {
+    const mimeTypes = ['audio/wav', 'audio/ogg', 'audio/opus'];
+    if (mimeTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only WAV, OGG/OPUS audio is allowed.'));
+    }
+  }
+});
 
 module.exports = (io) => {
   router.post('/update-location', (req, res) => geolocationController.updateUserLocation(req, res, io));
@@ -28,6 +58,18 @@ module.exports = (io) => {
 
   router.post('/panic', (req, res) => geolocationController.panic(req, res, io));
 
+  // Ruta para manejar la subida de audios
+  router.post('/upload-audio', uploadAudio.single('audio'), (req, res) => {
+    try {
+      const audioUrl = '/media/audios/' + req.file.filename;
+      
+      io.emit('new-audio', { audioUrl });
+      res.json({ audioUrl });
+    } catch (error) {
+      console.error('Error uploading audio:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   return router;
 };
-
